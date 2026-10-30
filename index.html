@@ -138,6 +138,45 @@
     font: inherit; font-size: 14px; cursor: pointer;
   }
 
+  .board {
+    position: absolute; z-index: 1001; left: 12px; right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    max-width: 440px; margin: 0 auto;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 16px 12px; box-shadow: 0 6px 24px rgba(20,35,43,.25);
+    transform: translateY(130%); visibility: hidden;
+    transition: transform .25s ease, visibility 0s linear .25s;
+  }
+  .board.open { transform: none; visibility: visible; transition: transform .25s ease; }
+  .board h2 { margin: 0; font-size: 20px; padding-right: 44px; }
+  .board .sub { color: var(--muted); font-size: 13px; margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .board .link { border: 0; background: none; color: var(--accent); font: inherit; font-size: 13px; padding: 6px 0; cursor: pointer; text-decoration: underline; }
+  .board button.close {
+    position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border: 0;
+    background: none; font-size: 24px; color: var(--muted); cursor: pointer; border-radius: 10px;
+  }
+  .tabs { display: flex; gap: 6px; margin: 10px 0 8px; }
+  .tabs button {
+    flex: 1; height: 40px; border: 1px solid var(--line); border-radius: 8px; background: none;
+    font: inherit; font-size: 13px; color: var(--ink); cursor: pointer;
+  }
+  .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .board .list { max-height: 38vh; overflow-y: auto; }
+  .board .row {
+    display: flex; justify-content: space-between; gap: 10px; align-items: center; width: 100%;
+    min-height: 52px; padding: 6px 4px; border: 0; border-top: 1px solid var(--line); background: none;
+    font: inherit; text-align: left; color: var(--ink); cursor: pointer;
+  }
+  .board .row:first-child { border-top: 0; }
+  .board .row .l { min-width: 0; }
+  .board .row b { font-size: 16px; }
+  .board .row .ty { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .board .row .rt { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .board .row .st { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; flex: none; max-width: 48%; }
+  .board .empty { padding: 14px 4px; color: var(--muted); font-size: 14px; }
+  .board .note { margin: 8px 0 0; font-size: 11px; color: var(--muted); line-height: 1.35; }
+  .board .row:focus-visible, .tabs button:focus-visible, .board .link:focus-visible, .board button.close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
   .leaflet-top.leaflet-right { top: calc(env(safe-area-inset-top, 0px) + 64px); }
   .leaflet-tile-pane { filter: grayscale(.85) contrast(.9) brightness(1.08); }
   .leaflet-control-attribution { font-size: 10px; }
@@ -196,6 +235,19 @@
   </dl>
 </section>
 
+<section class="board" id="board" aria-live="polite" aria-label="Airport live traffic">
+  <button class="close" id="b-close" type="button" aria-label="Close airport board">&times;</button>
+  <h2 id="b-name"></h2>
+  <div class="sub"><span id="b-codes"></span><span aria-hidden="true">·</span><button class="link" id="b-zoom" type="button">Zoom to airport</button></div>
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="t-arr" aria-selected="true">Arriving</button>
+    <button type="button" role="tab" id="t-dep" aria-selected="false">Departing</button>
+    <button type="button" role="tab" id="t-gnd" aria-selected="false">On ground</button>
+  </div>
+  <div class="list" id="b-list"></div>
+  <p class="note" id="b-note"></p>
+</section>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 (() => {
@@ -229,6 +281,7 @@
   const planes = new Map();   // hex -> {data, marker, trail}
   let selected = null, trailLine = null, filter = '', timer = null, inflight = false;
   const F = { minAlt: 0, minSpd: 0, hideGround: false };
+  let boardApt = null, boardData = [], boardTab = 'arr', boardLoading = false, boardBusy = false, boardError = '', pendingSelect = null;
 
   const altColor = ft => {
     if (ft == null) return '#7b8a91';
@@ -293,7 +346,8 @@
       routeCache.set(call, null);
     } finally { routePending.delete(call); }
     const e = selected && planes.get(selected);
-    if (e && e.data.call === call) showCard(e);
+    if (e && e.data.call.toUpperCase() === call) showCard(e);
+    if (boardApt) renderBoard();
   }
 
   function showSetup() {
@@ -399,10 +453,12 @@
       if (!seen.has(id)) { map.removeLayer(e.marker); planes.delete(id); if (selected === id) deselect(); }
     }
     updateCount();
+    if (pendingSelect && planes.has(pendingSelect)) { const id = pendingSelect; pendingSelect = null; select(id); }
     if (selected && planes.has(selected)) showCard(planes.get(selected));
   }
 
   function select(id) {
+    closeBoard();
     const prev = selected;
     selected = id;
     if (prev && planes.has(prev)) planes.get(prev).marker.setIcon(makeIcon(planes.get(prev).data, false));
@@ -552,16 +608,7 @@
         iconSize: [28, 28], iconAnchor: [14, 14]
       })
     });
-    m.on('click', () => {
-      const box = document.createElement('div');
-      box.className = 'apt-pop';
-      const t = document.createElement('b'); t.textContent = name;
-      const c = document.createElement('div'); c.textContent = iata + ' · ' + icao;
-      const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Zoom to airport';
-      b.onclick = () => { map.closePopup(); map.flyTo([lat, lon], 11, { duration: 1 }); };
-      box.append(t, c, b);
-      L.popup({ offset: [0, -6] }).setLatLng([lat, lon]).setContent(box).openOn(map);
-    });
+    m.on('click', () => openBoard({ iata, icao, name, lat, lon }));
     airportLayer.addLayer(m);
   }
   airportLayer.addTo(map);
@@ -577,9 +624,176 @@
     if (e.target.checked) airportLayer.addTo(map); else map.removeLayer(airportLayer);
   });
 
+
+  // ---- airport live board --------------------------------------------
+  // Built from live aircraft within BOARD_RADIUS_NM of the airport (position, altitude,
+  // heading, climb/descent) plus route lookups. It is not a timetable.
+  const R_NM = 3440.065, RAD = Math.PI / 180, BOARD_RADIUS_NM = 40;
+  const distNm = (la1, lo1, la2, lo2) => {
+    const a = Math.sin((la2 - la1) * RAD / 2) ** 2 + Math.cos(la1 * RAD) * Math.cos(la2 * RAD) * Math.sin((lo2 - lo1) * RAD / 2) ** 2;
+    return 2 * R_NM * Math.asin(Math.sqrt(a));
+  };
+  const bearing = (la1, lo1, la2, lo2) => {
+    const y = Math.sin((lo2 - lo1) * RAD) * Math.cos(la2 * RAD);
+    const x = Math.cos(la1 * RAD) * Math.sin(la2 * RAD) - Math.sin(la1 * RAD) * Math.cos(la2 * RAD) * Math.cos((lo2 - lo1) * RAD);
+    return (Math.atan2(y, x) / RAD + 360) % 360;
+  };
+  const angDiff = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+  const matchApt = (a, apt) => !!a && ((a.icao_code && a.icao_code === apt.icao) || (a.iata_code && a.iata_code === apt.iata));
+  const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const code = a => a.iata_code || a.icao_code || '?';
+  const place = a => a.municipality || a.name || code(a);
+  const TAB_LABEL = { arr: 'Arriving', dep: 'Departing', gnd: 'On ground' };
+  const EMPTY = {
+    arr: 'No arrivals detected within 40 nm right now.',
+    dep: 'No departures detected within 40 nm right now.',
+    gnd: 'No aircraft with transponders on the ground here right now.'
+  };
+
+  function classify(p, apt) {
+    const d = distNm(p.lat, p.lon, apt.lat, apt.lon);
+    const info = routeCache.get(p.call.toUpperCase());
+    const toApt = !!info && matchApt(info.destination, apt);
+    const fromApt = !!info && matchApt(info.origin, apt);
+    if (p.ground) {
+      if (d > 3) return null;
+      return { p, d, info, kind: 'gnd', dir: toApt ? 'arr' : fromApt ? 'dep' : null };
+    }
+    const alt = p.alt ?? 99999;
+    if (alt > 12000 || d > BOARD_RADIUS_NM) return null;
+    if (info && !toApt && !fromApt) return null;      // a different flight passing by
+    const vs = p.vs ?? 0;
+    let kind = null;
+    if (toApt && !fromApt) kind = 'arr';
+    else if (fromApt && !toApt) kind = 'dep';
+    else if (!info) {
+      const toward = angDiff(p.track, bearing(p.lat, p.lon, apt.lat, apt.lon)) <= 50;
+      const away = angDiff(p.track, bearing(apt.lat, apt.lon, p.lat, p.lon)) <= 50;
+      const level = alt < 3000 && d < 10;
+      if (toward && alt <= 10000 && (vs <= -300 || level)) kind = 'arr';
+      else if (away && alt <= 10000 && (vs >= 400 || level)) kind = 'dep';
+    }
+    if (!kind) return null;
+    return { p, d, info, kind, eta: p.spd > 50 ? d / p.spd * 60 : null };
+  }
+
+  function statusText(c) {
+    const { p, d } = c;
+    const nm = Math.round(d) + ' nm';
+    if (c.kind === 'gnd') {
+      if (c.dir === 'arr') return 'Arrived';
+      if (c.dir === 'dep') return 'Departing soon';
+      return p.spd > 5 ? 'Taxiing' : 'Parked or holding';
+    }
+    const alt = p.alt ?? 0;
+    if (c.kind === 'arr') {
+      if (alt < 1500 && d < 3) return 'Landing';
+      if (alt < 4000 && d <= 12) return 'Final approach · ' + nm;
+      return c.eta != null ? 'Arrives in ~' + Math.max(1, Math.round(c.eta)) + ' min · ' + nm : nm + ' out';
+    }
+    if (alt < 1500 && d < 3) return 'Just took off';
+    return 'Climbing · ' + alt.toLocaleString('en-GB') + ' ft · ' + nm;
+  }
+
+  function rowEl(c) {
+    const { p, info } = c;
+    const b = mk('button', 'row');
+    b.type = 'button';
+    const l = mk('div', 'l');
+    const top = mk('div');
+    top.append(mk('b', null, p.call || p.id.toUpperCase()));
+    if (p.type) top.append(mk('span', 'ty', p.type));
+    l.append(top);
+    let route = '';
+    if (info) {
+      const o = info.origin, dd = info.destination;
+      route = c.kind === 'arr' ? `from ${place(o)} (${code(o)})`
+            : c.kind === 'dep' ? `to ${place(dd)} (${code(dd)})`
+            : `${code(o)} → ${code(dd)}`;
+    } else if (/^[A-Z]{3}\d/.test(p.call.toUpperCase()) && routePending.has(p.call.toUpperCase())) {
+      route = 'Looking up route…';
+    }
+    if (route) l.append(mk('div', 'rt', route));
+    b.append(l, mk('div', 'st', statusText(c)));
+    b.addEventListener('click', () => {
+      closeBoard();
+      pendingSelect = p.id;
+      map.flyTo([p.lat, p.lon], 10, { duration: 1 });
+    });
+    return b;
+  }
+
+  function renderBoard() {
+    if (!boardApt) return;
+    const rows = { arr: [], dep: [], gnd: [] };
+    for (const p of boardData) { const c = classify(p, boardApt); if (c) rows[c.kind].push(c); }
+    rows.arr.sort((a, b) => (a.eta ?? a.d * 10) - (b.eta ?? b.d * 10));
+    rows.dep.sort((a, b) => a.d - b.d);
+    rows.gnd.sort((a, b) => a.p.call.localeCompare(b.p.call));
+    for (const k of ['arr', 'dep', 'gnd']) {
+      const t = $('t-' + k);
+      t.textContent = `${TAB_LABEL[k]} (${rows[k].length})`;
+      t.setAttribute('aria-selected', String(k === boardTab));
+    }
+    const list = $('b-list');
+    list.replaceChildren();
+    const cur = rows[boardTab].slice(0, 40);
+    if (!cur.length) list.append(mk('div', 'empty', boardLoading ? 'Loading live traffic…' : EMPTY[boardTab]));
+    for (const c of cur) list.append(rowEl(c));
+    const pend = [...routePending].length;
+    $('b-note').textContent = boardError ||
+      ('Live aircraft within 40 nm, worked out from position, altitude and heading, with routes from adsbdb. ' +
+       'This is not a timetable: no scheduled times, gates or delays.' + (pend ? ` Checking routes for ${pend} flight${pend > 1 ? 's' : ''}…` : ''));
+  }
+
+  async function refreshBoard() {
+    const apt = boardApt;
+    if (!apt || boardBusy) return;
+    if (!PROXY) { boardLoading = false; boardError = 'Set your relay address first (see the banner).'; renderBoard(); return; }
+    boardBusy = true;
+    try {
+      const r = await fetch(`${PROXY}/v2/point/${apt.lat.toFixed(3)}/${apt.lon.toFixed(3)}/${BOARD_RADIUS_NM}`);
+      if (!r.ok) throw new Error('relay returned ' + r.status);
+      const j = await r.json();
+      if (boardApt === apt) {
+        boardData = (j.ac || j.aircraft || []).filter(a => a.lat != null && a.lon != null).map(mapAc);
+        boardError = '';
+        const todo = boardData
+          .filter(p => /^[A-Z]{3}\d/.test(p.call.toUpperCase()))
+          .filter(p => !routeCache.has(p.call.toUpperCase()) && !routePending.has(p.call.toUpperCase()))
+          .filter(p => p.ground ? distNm(p.lat, p.lon, apt.lat, apt.lon) <= 3 : (p.alt ?? 99999) <= 12000)
+          .sort((a, b) => distNm(a.lat, a.lon, apt.lat, apt.lon) - distNm(b.lat, b.lon, apt.lat, apt.lon))
+          .slice(0, 8);
+        for (const p of todo) loadRoute(p.call.toUpperCase());
+      }
+    } catch (e) {
+      boardError = 'Could not load live traffic: ' + (e.message || e);
+    } finally {
+      boardBusy = false; boardLoading = false;
+      renderBoard();
+    }
+  }
+
+  function openBoard(apt) {
+    deselect(); setPanel(false);
+    boardApt = apt; boardData = []; boardTab = 'arr'; boardLoading = true; boardError = '';
+    $('b-name').textContent = apt.name;
+    $('b-codes').textContent = apt.iata + ' · ' + apt.icao;
+    $('board').classList.add('open');
+    renderBoard();
+    refreshBoard();
+  }
+  function closeBoard() { boardApt = null; $('board').classList.remove('open'); }
+
+  $('b-close').addEventListener('click', closeBoard);
+  $('b-zoom').addEventListener('click', () => { if (boardApt) map.flyTo([boardApt.lat, boardApt.lon], 11, { duration: 1 }); });
+  for (const k of ['arr', 'dep', 'gnd']) $('t-' + k).addEventListener('click', () => { boardTab = k; renderBoard(); });
+
+  function tick() { refresh(); if (boardApt) setTimeout(refreshBoard, 1500); }
+
   // ---- events --------------------------------------------------------
   $('close').addEventListener('click', deselect);
-  map.on('click', () => { setPanel(false); deselect(); });
+  map.on('click', () => { setPanel(false); closeBoard(); deselect(); });
   map.on('moveend', () => { clearTimeout(map._mv); map._mv = setTimeout(refresh, 400); });
 
   $('q').addEventListener('input', e => {
@@ -599,11 +813,11 @@
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { clearInterval(timer); timer = null; }
-    else if (!timer) { refresh(); timer = setInterval(refresh, REFRESH_MS); }
+    else if (!timer) { tick(); timer = setInterval(tick, REFRESH_MS); }
   });
 
   refresh();
-  timer = setInterval(refresh, REFRESH_MS);
+  timer = setInterval(tick, REFRESH_MS);
 })();
 </script>
 </body>
