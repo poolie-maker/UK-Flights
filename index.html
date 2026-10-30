@@ -119,6 +119,25 @@
   .grid dt { font-size: 12px; color: var(--muted); }
   .grid dd { margin: 2px 0 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
+  .apt { position: relative; }
+  .apt-dot {
+    position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+    background: #14232b; border: 2px solid #fff; border-radius: 3px; transform: rotate(45deg);
+    box-shadow: 0 1px 3px rgba(0,0,0,.4);
+  }
+  .apt-label {
+    display: none; position: absolute; left: 22px; top: 50%; transform: translateY(-50%);
+    font-size: 11px; font-weight: 700; letter-spacing: .04em; color: #14232b; white-space: nowrap;
+    text-shadow: -1px 0 #fff, 1px 0 #fff, 0 -1px #fff, 0 1px #fff, 0 0 4px #fff;
+  }
+  .apt-z6 .apt-label.t1, .apt-z8 .apt-label { display: block; }
+  .apt-pop b { font-size: 15px; }
+  .apt-pop div { color: #5d6f78; font-size: 13px; margin: 2px 0 8px; }
+  .apt-pop button {
+    height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: #0b6e8a; color: #fff;
+    font: inherit; font-size: 14px; cursor: pointer;
+  }
+
   .leaflet-top.leaflet-right { top: calc(env(safe-area-inset-top, 0px) + 64px); }
   .leaflet-tile-pane { filter: grayscale(.85) contrast(.9) brightness(1.08); }
   .leaflet-control-attribution { font-size: 10px; }
@@ -150,6 +169,7 @@
   <label for="f-spd">Minimum speed: <b id="o-spd">Any</b></label>
   <input type="range" id="f-spd" min="0" max="600" step="25" value="0">
   <label class="check"><input type="checkbox" id="f-gnd"> Hide aircraft on the ground</label>
+  <label class="check"><input type="checkbox" id="f-apt" checked> Show airports</label>
   <button class="reset" id="f-reset" type="button">Reset filters</button>
 </div>
 
@@ -459,6 +479,102 @@
     $('f-alt').value = 0; $('f-spd').value = 0; $('f-gnd').checked = false;
     $('o-alt').textContent = 'Any'; $('o-spd').textContent = 'Any';
     applyFilters();
+  });
+
+
+  // ---- airport markers -----------------------------------------------
+  // [IATA, ICAO, name, lat, lon, major?]
+  const AIRPORTS = [
+    ['LHR','EGLL','London Heathrow',51.4700,-0.4543,1],
+    ['LGW','EGKK','London Gatwick',51.1537,-0.1821,1],
+    ['STN','EGSS','London Stansted',51.8860,0.2389,1],
+    ['LTN','EGGW','London Luton',51.8747,-0.3683,1],
+    ['LCY','EGLC','London City',51.5053,0.0553,1],
+    ['SEN','EGMC','London Southend',51.5714,0.6956,0],
+    ['BQH','EGKB','Biggin Hill',51.3308,0.0325,0],
+    ['NHT','EGWU','RAF Northolt',51.5530,-0.4182,0],
+    ['FAB','EGLF','Farnborough',51.2758,-0.7763,0],
+    ['MAN','EGCC','Manchester',53.3537,-2.2750,1],
+    ['BHX','EGBB','Birmingham',52.4539,-1.7480,1],
+    ['BRS','EGGD','Bristol',51.3827,-2.7191,1],
+    ['NCL','EGNT','Newcastle',55.0375,-1.6917,1],
+    ['LPL','EGGP','Liverpool John Lennon',53.3336,-2.8497,1],
+    ['EMA','EGNX','East Midlands',52.8311,-1.3281,1],
+    ['LBA','EGNM','Leeds Bradford',53.8659,-1.6606,1],
+    ['DSA','EGCN','Doncaster Sheffield',53.4805,-1.0105,0],
+    ['HUY','EGNJ','Humberside',53.5744,-0.3508,0],
+    ['MME','EGNV','Teesside International',54.5092,-1.4294,0],
+    ['NWI','EGSH','Norwich',52.6758,1.2828,0],
+    ['EXT','EGTE','Exeter',50.7344,-3.4139,0],
+    ['BOH','EGHH','Bournemouth',50.7800,-1.8425,0],
+    ['SOU','EGHI','Southampton',50.9503,-1.3568,0],
+    ['NQY','EGHQ','Newquay Cornwall',50.4406,-4.9954,0],
+    ['ISC','EGHE','Isles of Scilly (St Mary’s)',49.9133,-6.2917,0],
+    ['BLK','EGNH','Blackpool',53.7717,-3.0286,0],
+    ['CAX','EGNC','Carlisle Lake District',54.9375,-2.8092,0],
+    ['LYX','EGMD','Lydd',50.9561,0.9392,0],
+    ['CBG','EGSC','Cambridge',52.2050,0.1750,0],
+    ['OXF','EGTK','Oxford',51.8369,-1.3200,0],
+    ['GLO','EGBJ','Gloucestershire',51.8942,-2.1672,0],
+    ['CVT','EGBE','Coventry',52.3697,-1.4797,0],
+    ['CWL','EGFF','Cardiff',51.3967,-3.3433,1],
+    ['EDI','EGPH','Edinburgh',55.9500,-3.3725,1],
+    ['GLA','EGPF','Glasgow',55.8719,-4.4331,1],
+    ['PIK','EGPK','Glasgow Prestwick',55.5094,-4.5867,0],
+    ['ABZ','EGPD','Aberdeen',57.2019,-2.1978,1],
+    ['INV','EGPE','Inverness',57.5425,-4.0475,0],
+    ['DND','EGPN','Dundee',56.4525,-3.0258,0],
+    ['SYY','EGPO','Stornoway',58.2156,-6.3311,0],
+    ['KOI','EGPA','Kirkwall',58.9578,-2.9050,0],
+    ['LSI','EGPB','Sumburgh',59.8789,-1.2956,0],
+    ['LWK','EGET','Lerwick (Tingwall)',60.1922,-1.2436,0],
+    ['WIC','EGPC','Wick John O’Groats',58.4589,-3.0931,0],
+    ['BEB','EGPL','Benbecula',57.4811,-7.3628,0],
+    ['BRR','EGPR','Barra',57.0228,-7.4431,0],
+    ['ILY','EGPI','Islay',55.6819,-6.2567,0],
+    ['CAL','EGEC','Campbeltown',55.4372,-5.6864,0],
+    ['TRE','EGPU','Tiree',56.4992,-6.8692,0],
+    ['OBN','EGEO','Oban',56.4636,-5.4119,0],
+    ['BFS','EGAA','Belfast International',54.6575,-6.2158,1],
+    ['BHD','EGAC','George Best Belfast City',54.6181,-5.8725,0],
+    ['LDY','EGAE','City of Derry',55.0428,-7.1611,0]
+  ];
+
+  map.createPane('airports');
+  map.getPane('airports').style.zIndex = 450;   // below aircraft (markers sit at 600)
+  const airportLayer = L.layerGroup();
+  for (const [iata, icao, name, lat, lon, major] of AIRPORTS) {
+    const m = L.marker([lat, lon], {
+      pane: 'airports', keyboard: false, title: name,
+      icon: L.divIcon({
+        className: '',
+        html: `<div class="apt"><div class="apt-dot"></div><span class="apt-label${major ? ' t1' : ''}">${iata}</span></div>`,
+        iconSize: [28, 28], iconAnchor: [14, 14]
+      })
+    });
+    m.on('click', () => {
+      const box = document.createElement('div');
+      box.className = 'apt-pop';
+      const t = document.createElement('b'); t.textContent = name;
+      const c = document.createElement('div'); c.textContent = iata + ' · ' + icao;
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Zoom to airport';
+      b.onclick = () => { map.closePopup(); map.flyTo([lat, lon], 11, { duration: 1 }); };
+      box.append(t, c, b);
+      L.popup({ offset: [0, -6] }).setLatLng([lat, lon]).setContent(box).openOn(map);
+    });
+    airportLayer.addLayer(m);
+  }
+  airportLayer.addTo(map);
+
+  const syncAirportLabels = () => {
+    const z = map.getZoom(), el = map.getContainer();
+    el.classList.toggle('apt-z6', z >= 6);
+    el.classList.toggle('apt-z8', z >= 8);
+  };
+  map.on('zoomend', syncAirportLabels);
+  syncAirportLabels();
+  $('f-apt').addEventListener('change', e => {
+    if (e.target.checked) airportLayer.addTo(map); else map.removeLayer(airportLayer);
   });
 
   // ---- events --------------------------------------------------------
