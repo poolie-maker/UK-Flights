@@ -48,6 +48,7 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
   .dot.busy { animation: pulse 1s ease-in-out infinite; }
   .dot.err { background: var(--bad); animation: none; }
+  .dot.warn { background: #c98a1b; animation: none; }
   @keyframes pulse { 50% { opacity: .25; } }
 
   .chips {
@@ -281,6 +282,7 @@
   const planes = new Map();   // hex -> {data, marker, trail}
   let selected = null, trailLine = null, filter = '', timer = null, inflight = false;
   const F = { minAlt: 0, minSpd: 0, hideGround: false };
+  let failCount = 0;
   let boardApt = null, boardData = [], boardTab = 'arr', boardLoading = false, boardBusy = false, boardError = '', pendingSelect = null;
 
   const altColor = ft => {
@@ -325,7 +327,10 @@
     const ne = map.getBounds().getNorthEast();
     const nm = Math.min(MAX_RADIUS_NM, Math.max(25, c.distanceTo(ne) / 1852));
     const r = await fetch(`${PROXY}/v2/point/${c.lat.toFixed(3)}/${c.lng.toFixed(3)}/${Math.round(nm)}`);
-    if (!r.ok) throw new Error('relay returned ' + r.status);
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      throw new Error('relay returned ' + r.status + (t ? ' (' + t.slice(0, 140) + ')' : ''));
+    }
     const j = await r.json();
     const list = j.ac || j.aircraft || [];
     return list.filter(a => a.lat != null && a.lon != null).map(mapAc);
@@ -385,12 +390,20 @@
     let list;
     try { list = await fetchFlights(); }
     catch (e) {
-      dot.className = 'dot err';
-      note.textContent = 'Could not load flights: ' + (e.message || e) + '. Check the relay address.';
-      note.style.display = 'block';
+      // keep showing the last aircraft; retry quickly and only complain if it keeps failing
+      failCount++;
       inflight = false;
+      if (failCount >= 3) {
+        dot.className = 'dot err';
+        note.textContent = 'Could not load flights: ' + (e.message || e) + (e instanceof TypeError ? '. Check the relay address and your connection.' : '');
+        note.style.display = 'block';
+      } else {
+        dot.className = 'dot warn';
+      }
+      if (failCount <= 6) setTimeout(refresh, 3000);
       return;
     }
+    failCount = 0;
     note.style.display = 'none';
     try { apply(list); dot.className = 'dot'; }
     catch (e) {
