@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UK Flights Live</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --ink: #14232b;
+    --muted: #5d6f78;
+    --paper: #fbfcfc;
+    --line: #d5dde1;
+    --accent: #0b6e8a;
+    --bad: #b3402a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; color: var(--ink); background: #e8eef0; }
+  #map { position: absolute; inset: 0; }
+
+  .bar {
+    position: absolute; z-index: 1000; left: 12px; right: 12px;
+    top: calc(12px + env(safe-area-inset-top, 0px));
+    display: flex; gap: 8px; align-items: center; pointer-events: none;
+  }
+  .bar > * { pointer-events: auto; }
+  .search {
+    flex: 1; min-width: 0; height: 44px; border: 1px solid var(--line); border-radius: 10px;
+    padding: 0 14px; font: inherit; font-size: 16px; background: var(--paper); color: var(--ink);
+    box-shadow: 0 1px 3px rgba(20,35,43,.15);
+  }
+  .search:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .status {
+    height: 44px; padding: 0 12px; display: flex; align-items: center; gap: 8px;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
+    font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap;
+    box-shadow: 0 1px 3px rgba(20,35,43,.15);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .dot.busy { animation: pulse 1s ease-in-out infinite; }
+  .dot.err { background: var(--bad); animation: none; }
+  @keyframes pulse { 50% { opacity: .25; } }
+
+  .plane { transition: transform .2s linear; }
+  .plane svg { display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
+  .plane.sel svg { filter: drop-shadow(0 0 0 #000) drop-shadow(0 0 4px rgba(11,110,138,.9)); }
+  .plane.dim { opacity: .25; }
+
+  .legend {
+    position: absolute; z-index: 1000; left: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 10px; font-size: 12px; color: var(--muted);
+    box-shadow: 0 1px 3px rgba(20,35,43,.15);
+  }
+  .legend .ramp { height: 6px; width: 120px; border-radius: 3px; margin: 4px 0 2px;
+    background: linear-gradient(90deg, hsl(28 85% 48%), hsl(120 55% 38%), hsl(200 75% 40%), hsl(250 60% 45%)); }
+  .legend .ends { display: flex; justify-content: space-between; }
+
+  .card {
+    position: absolute; z-index: 1001; left: 12px; right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    max-width: 440px; margin: 0 auto;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 16px 16px; box-shadow: 0 6px 24px rgba(20,35,43,.25);
+    transform: translateY(130%); transition: transform .25s ease;
+  }
+  .card.open { transform: none; }
+  .card h2 { margin: 0; font-size: 24px; letter-spacing: .01em; }
+  .card .sub { color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .card button.close {
+    position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border: 0;
+    background: none; font-size: 24px; color: var(--muted); cursor: pointer; border-radius: 10px;
+  }
+  .card button.close:focus-visible { outline: 2px solid var(--accent); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px 8px; margin-top: 14px; }
+  .grid dt { font-size: 12px; color: var(--muted); }
+  .grid dd { margin: 2px 0 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .leaflet-control-attribution { font-size: 10px; }
+  .leaflet-bottom.leaflet-right { bottom: 0; }
+  @media (max-width: 520px) { .legend { display: none; } .status .txt-long { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .plane, .card { transition: none; } .dot.busy { animation: none; } }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="bar">
+  <input class="search" id="q" type="search" placeholder="Find a callsign or registration" autocomplete="off" aria-label="Find a flight">
+  <div class="status" role="status" aria-live="polite"><span class="dot" id="dot"></span><span id="count">0</span><span class="txt-long">aircraft</span></div>
+</div>
+
+<div class="legend" aria-hidden="true">
+  Altitude
+  <div class="ramp"></div>
+  <div class="ends"><span>Low</span><span>40,000 ft</span></div>
+</div>
+
+<section class="card" id="card" aria-live="polite">
+  <button class="close" id="close" aria-label="Close details">&times;</button>
+  <h2 id="c-call">—</h2>
+  <div class="sub" id="c-sub"></div>
+  <dl class="grid">
+    <div><dt>Altitude</dt><dd id="c-alt"></dd></div>
+    <div><dt>Ground speed</dt><dd id="c-spd"></dd></div>
+    <div><dt>Heading</dt><dd id="c-hdg"></dd></div>
+    <div><dt>Vertical rate</dt><dd id="c-vs"></dd></div>
+    <div><dt>Squawk</dt><dd id="c-sq"></dd></div>
+    <div><dt>Registration</dt><dd id="c-reg"></dd></div>
+  </dl>
+</section>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(() => {
+  const REFRESH_MS = 10000;
+  const MAX_RADIUS_NM = 250;          // adsb.lol limit
+  const UK_BOUNDS = [[49.8, -8.7], [60.9, 2.0]];
+
+  const map = L.map('map', { zoomControl: false, preferCanvas: true });
+  map.fitBounds(UK_BOUNDS);
+  L.control.zoom({ position: 'topright' }).addTo(map);
+  map.zoomControl.getContainer().style.marginTop = '64px';
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO | Data: adsb.lol / OpenSky',
+    maxZoom: 12, subdomains: 'abcd'
+  }).addTo(map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
+    maxZoom: 12, subdomains: 'abcd', pane: 'shadowPane'
+  }).addTo(map);
+
+  const $ = id => document.getElementById(id);
+  const planes = new Map();   // hex -> {data, marker, trail}
+  let selected = null, trailLine = null, filter = '', timer = null, inflight = false;
+
+  const altColor = ft => {
+    if (ft == null) return '#7b8a91';
+    const t = Math.min(Math.max(ft, 0) / 40000, 1);
+    // low = orange, mid = green, high = blue/violet
+    const hue = t < 0.33 ? 28 + (t / 0.33) * 92 : t < 0.66 ? 120 + ((t - 0.33) / 0.33) * 80 : 200 + ((t - 0.66) / 0.34) * 50;
+    return `hsl(${hue.toFixed(0)} ${t < 0.33 ? 85 : 65}% ${t < 0.33 ? 48 : 40}%)`;
+  };
+
+  const iconHtml = (p, sel) => {
+    const c = p.ground ? '#7b8a91' : altColor(p.alt);
+    return `<div class="plane${sel ? ' sel' : ''}" style="transform:rotate(${p.track || 0}deg)">
+      <svg width="26" height="26" viewBox="0 0 24 24"><path fill="${c}" stroke="#fff" stroke-width="1" d="M12 1.5c.9 0 1.5.8 1.5 1.9v6.1l8 4.6v2.1l-8-2.3v4.3l2.2 1.7v1.6L12 20.6l-3.7 1.1v-1.6l2.2-1.7v-4.3l-8 2.3v-2.1l8-4.6V3.4c0-1.1.6-1.9 1.5-1.9z"/></svg></div>`;
+  };
+
+  const makeIcon = (p, sel) => L.divIcon({ className: '', html: iconHtml(p, sel), iconSize: [26, 26], iconAnchor: [13, 13] });
+
+  // ---- data sources --------------------------------------------------
+  async function fetchAdsbLol() {
+    const c = map.getCenter();
+    const ne = map.getBounds().getNorthEast();
+    const nm = Math.min(MAX_RADIUS_NM, Math.max(25, c.distanceTo(ne) / 1852));
+    const r = await fetch(`https://api.adsb.lol/v2/point/${c.lat.toFixed(3)}/${c.lng.toFixed(3)}/${Math.round(nm)}`);
+    if (!r.ok) throw new Error('adsb.lol ' + r.status);
+    const j = await r.json();
+    return (j.ac || []).filter(a => a.lat != null && a.lon != null).map(a => ({
+      id: a.hex,
+      call: (a.flight || '').trim(),
+      reg: a.r || '',
+      type: a.t || '',
+      lat: a.lat, lon: a.lon,
+      ground: a.alt_baro === 'ground',
+      alt: typeof a.alt_baro === 'number' ? a.alt_baro : null,
+      spd: a.gs != null ? Math.round(a.gs) : null,
+      track: a.track ?? a.true_heading ?? 0,
+      vs: a.baro_rate ?? null,
+      sq: a.squawk || ''
+    }));
+  }
+
+  async function fetchOpenSky() {
+    const b = map.getBounds();
+    const q = `lamin=${b.getSouth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomax=${b.getEast().toFixed(2)}`;
+    const r = await fetch('https://opensky-network.org/api/states/all?' + q);
+    if (!r.ok) throw new Error('OpenSky ' + r.status);
+    const j = await r.json();
+    return (j.states || []).filter(s => s[5] != null && s[6] != null).map(s => ({
+      id: s[0],
+      call: (s[1] || '').trim(),
+      reg: '', type: '',
+      lat: s[6], lon: s[5],
+      ground: !!s[8],
+      alt: s[7] != null ? Math.round(s[7] * 3.28084) : null,
+      spd: s[9] != null ? Math.round(s[9] * 1.94384) : null,
+      track: s[10] ?? 0,
+      vs: s[11] != null ? Math.round(s[11] * 196.85) : null,
+      sq: s[14] || ''
+    }));
+  }
+
+  async function refresh() {
+    if (inflight) return;
+    inflight = true;
+    const dot = $('dot');
+    dot.className = 'dot busy';
+    let list;
+    try {
+      try { list = await fetchAdsbLol(); }
+      catch (e) { list = await fetchOpenSky(); }
+      apply(list);
+      dot.className = 'dot';
+    } catch (e) {
+      console.error(e);
+      dot.className = 'dot err';
+    } finally { inflight = false; }
+  }
+
+  // ---- rendering -----------------------------------------------------
+  function matches(p) {
+    if (!filter) return true;
+    return p.call.toLowerCase().includes(filter) || p.reg.toLowerCase().includes(filter) || p.id.toLowerCase() === filter;
+  }
+
+  function apply(list) {
+    const seen = new Set();
+    for (const p of list) {
+      seen.add(p.id);
+      let e = planes.get(p.id);
+      const isSel = selected === p.id;
+      if (!e) {
+        const marker = L.marker([p.lat, p.lon], { icon: makeIcon(p, isSel), keyboard: false }).addTo(map);
+        marker.on('click', () => select(p.id));
+        e = { data: p, marker, trail: [] };
+        planes.set(p.id, e);
+      } else {
+        e.data = p;
+        e.marker.setLatLng([p.lat, p.lon]);
+        e.marker.setIcon(makeIcon(p, isSel));
+      }
+      e.trail.push([p.lat, p.lon]);
+      if (e.trail.length > 40) e.trail.shift();
+      const el = e.marker.getElement();
+      if (el) el.firstChild && el.firstChild.classList.toggle('dim', !matches(p));
+    }
+    for (const [id, e] of planes) {
+      if (!seen.has(id)) { map.removeLayer(e.marker); planes.delete(id); if (selected === id) deselect(); }
+    }
+    $('count').textContent = list.filter(matches).length.toLocaleString('en-GB');
+    if (selected && planes.has(selected)) showCard(planes.get(selected));
+  }
+
+  function select(id) {
+    const prev = selected;
+    selected = id;
+    if (prev && planes.has(prev)) planes.get(prev).marker.setIcon(makeIcon(planes.get(prev).data, false));
+    const e = planes.get(id);
+    if (!e) return;
+    e.marker.setIcon(makeIcon(e.data, true));
+    showCard(e);
+  }
+
+  function deselect() {
+    if (selected && planes.has(selected)) planes.get(selected).marker.setIcon(makeIcon(planes.get(selected).data, false));
+    selected = null;
+    $('card').classList.remove('open');
+    if (trailLine) { map.removeLayer(trailLine); trailLine = null; }
+  }
+
+  function showCard(e) {
+    const p = e.data;
+    $('c-call').textContent = p.call || p.id.toUpperCase();
+    $('c-sub').textContent = [p.type, p.ground ? 'On the ground' : null].filter(Boolean).join(' · ') || 'Aircraft ' + p.id.toUpperCase();
+    $('c-alt').textContent = p.ground ? 'Ground' : p.alt != null ? p.alt.toLocaleString('en-GB') + ' ft' : '—';
+    $('c-spd').textContent = p.spd != null ? p.spd + ' kt' : '—';
+    $('c-hdg').textContent = Math.round(p.track || 0) + '°';
+    $('c-vs').textContent = p.vs != null ? (p.vs > 0 ? '+' : '') + p.vs.toLocaleString('en-GB') + ' ft/min' : '—';
+    $('c-sq').textContent = p.sq || '—';
+    $('c-reg').textContent = p.reg || '—';
+    $('card').classList.add('open');
+    if (trailLine) map.removeLayer(trailLine);
+    if (e.trail.length > 1) trailLine = L.polyline(e.trail, { color: '#0b6e8a', weight: 2, opacity: .7, dashArray: '4 4' }).addTo(map);
+  }
+
+  // ---- events --------------------------------------------------------
+  $('close').addEventListener('click', deselect);
+  map.on('click', deselect);
+  map.on('moveend', () => { clearTimeout(map._mv); map._mv = setTimeout(refresh, 400); });
+
+  $('q').addEventListener('input', e => {
+    filter = e.target.value.trim().toLowerCase();
+    let first = null;
+    for (const [id, p] of planes) {
+      const m = matches(p.data);
+      const el = p.marker.getElement();
+      if (el && el.firstChild) el.firstChild.classList.toggle('dim', !m);
+      if (m && filter && !first) first = id;
+    }
+    $('count').textContent = [...planes.values()].filter(p => matches(p.data)).length.toLocaleString('en-GB');
+    if (first && filter.length >= 3) { select(first); map.panTo(planes.get(first).data ? [planes.get(first).data.lat, planes.get(first).data.lon] : map.getCenter()); }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { clearInterval(timer); timer = null; }
+    else if (!timer) { refresh(); timer = setInterval(refresh, REFRESH_MS); }
+  });
+
+  refresh();
+  timer = setInterval(refresh, REFRESH_MS);
+})();
+</script>
+</body>
+</html>
