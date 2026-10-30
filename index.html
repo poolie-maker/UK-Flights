@@ -371,6 +371,14 @@
   const photoCache = new Map();    // hex -> {src, link, by} | null (null = none exists)
   const photoPending = new Set();
   const photoRetryAt = new Map();
+  // Planespotters serves thumbnails from a CDN host that isn't always the one in their docs,
+  // so accept any https address on one of their own domains.
+  const isPsUrl = u => {
+    try {
+      const x = new URL(u);
+      return x.protocol === 'https:' && /(^|\.)(planespotters\.net|plnspttrs\.net)$/.test(x.hostname);
+    } catch (e) { return false; }
+  };
   async function loadPhoto(p) {
     const key = p.id;
     photoPending.add(key);
@@ -383,8 +391,8 @@
         const j = await r.json();
         const ph = j && j.photos && j.photos[0];
         const src = ph && ph.thumbnail_large && ph.thumbnail_large.src;
-        if (src && /^https:\/\/cdn\.planespotters\.net\//.test(src)) {
-          result = { src, link: /^https:\/\/www\.planespotters\.net\//.test(ph.link || '') ? ph.link : '', by: ph.photographer || 'Unknown photographer' };
+        if (src && isPsUrl(src)) {
+          result = { src, link: isPsUrl(ph.link || '') ? ph.link : '', by: ph.photographer || 'Unknown photographer' };
           break;
         }
       }
