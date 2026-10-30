@@ -78,6 +78,7 @@
   .grid dt { font-size: 12px; color: var(--muted); }
   .grid dd { margin: 2px 0 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
+  .leaflet-top.leaflet-right { top: calc(env(safe-area-inset-top, 0px) + 64px); }
   .leaflet-control-attribution { font-size: 10px; }
   .leaflet-bottom.leaflet-right { bottom: 0; }
   @media (max-width: 520px) { .legend { display: none; } .status .txt-long { display: none; } }
@@ -122,7 +123,6 @@
   const map = L.map('map', { zoomControl: false, preferCanvas: true });
   map.fitBounds(UK_BOUNDS);
   L.control.zoom({ position: 'topright' }).addTo(map);
-  map.zoomControl.getContainer().style.marginTop = '64px';
 
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO | Data: adsb.lol / OpenSky',
