@@ -13,6 +13,7 @@
     --line: #d5dde1;
     --accent: #0b6e8a;
     --bad: #b3402a;
+    --top2: calc(64px + env(safe-area-inset-top, 0px));
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -31,6 +32,13 @@
     box-shadow: 0 1px 3px rgba(20,35,43,.15);
   }
   .search:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .fbtn {
+    height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--paper); color: var(--ink); font: inherit; font-size: 14px; cursor: pointer;
+    box-shadow: 0 1px 3px rgba(20,35,43,.15);
+  }
+  .fbtn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .fbtn:focus-visible, .chip:focus-visible, .reset:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .status {
     height: 44px; padding: 0 12px; display: flex; align-items: center; gap: 8px;
     background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
@@ -41,6 +49,36 @@
   .dot.busy { animation: pulse 1s ease-in-out infinite; }
   .dot.err { background: var(--bad); animation: none; }
   @keyframes pulse { 50% { opacity: .25; } }
+
+  .chips {
+    position: absolute; z-index: 1000; left: 12px; right: 70px; top: var(--top2);
+    display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: none;
+  }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 18px;
+    background: var(--paper); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer;
+    box-shadow: 0 1px 3px rgba(20,35,43,.15);
+  }
+  .chip:active { background: #e3eef2; }
+
+  .panel {
+    position: absolute; z-index: 1002; left: 12px; top: calc(108px + env(safe-area-inset-top, 0px));
+    width: min(340px, calc(100% - 24px));
+    background: var(--paper); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 16px; box-shadow: 0 6px 24px rgba(20,35,43,.25);
+  }
+  .panel[hidden] { display: none; }
+  .panel h3 { margin: 0 0 10px; font-size: 15px; }
+  .panel label { display: block; font-size: 13px; color: var(--muted); margin-top: 12px; }
+  .panel label b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .panel input[type=range] { width: 100%; height: 32px; accent-color: var(--accent); }
+  .panel .check { display: flex; align-items: center; gap: 10px; color: var(--ink); font-size: 14px; min-height: 44px; }
+  .panel .check input { width: 22px; height: 22px; accent-color: var(--accent); }
+  .reset {
+    margin-top: 6px; height: 40px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px;
+    background: none; color: var(--accent); font: inherit; font-size: 14px; cursor: pointer;
+  }
 
   .plane { transition: transform .2s linear; }
   .plane svg { display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
@@ -67,8 +105,11 @@
     transform: translateY(130%); transition: transform .25s ease;
   }
   .card.open { transform: none; }
-  .card h2 { margin: 0; font-size: 24px; letter-spacing: .01em; }
+  .card h2 { margin: 0; font-size: 24px; letter-spacing: .01em; padding-right: 44px; }
   .card .sub { color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .route { margin-top: 10px; padding: 8px 10px; background: #eef5f7; border-radius: 8px; display: none; }
+  .route .codes { font-size: 18px; font-weight: 700; letter-spacing: .02em; }
+  .route .names { font-size: 13px; color: var(--muted); margin-top: 1px; }
   .card button.close {
     position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border: 0;
     background: none; font-size: 24px; color: var(--muted); cursor: pointer; border-radius: 10px;
@@ -81,8 +122,12 @@
   .leaflet-top.leaflet-right { top: calc(env(safe-area-inset-top, 0px) + 64px); }
   .leaflet-tile-pane { filter: grayscale(.85) contrast(.9) brightness(1.08); }
   .leaflet-control-attribution { font-size: 10px; }
-  .err-note { position: absolute; z-index: 1000; left: 12px; right: 70px; top: calc(64px + env(safe-area-inset-top, 0px)); background: #fbeae6; color: #7a2a1a; border: 1px solid #e3b3a8; border-radius: 8px; padding: 6px 10px; font-size: 12px; display: none; }
   .leaflet-bottom.leaflet-right { bottom: 0; }
+  .err-note {
+    position: absolute; z-index: 1000; left: 12px; right: 70px; top: calc(108px + env(safe-area-inset-top, 0px));
+    background: #fbeae6; color: #7a2a1a; border: 1px solid #e3b3a8; border-radius: 8px;
+    padding: 6px 10px; font-size: 12px; display: none;
+  }
   @media (max-width: 520px) { .legend { display: none; } .status .txt-long { display: none; } }
   @media (prefers-reduced-motion: reduce) { .plane, .card { transition: none; } .dot.busy { animation: none; } }
 </style>
@@ -92,7 +137,20 @@
 
 <div class="bar">
   <input class="search" id="q" type="search" placeholder="Find a callsign or registration" autocomplete="off" aria-label="Find a flight">
+  <button class="fbtn" id="fbtn" type="button" aria-expanded="false" aria-controls="panel">Filters</button>
   <div class="status" role="status" aria-live="polite"><span class="dot" id="dot"></span><span id="count">0</span><span class="txt-long">aircraft</span></div>
+</div>
+
+<div class="chips" id="chips" role="group" aria-label="Jump to an area"></div>
+
+<div class="panel" id="panel" hidden>
+  <h3>Filter aircraft</h3>
+  <label for="f-alt">Minimum altitude: <b id="o-alt">Any</b></label>
+  <input type="range" id="f-alt" min="0" max="40000" step="1000" value="0">
+  <label for="f-spd">Minimum speed: <b id="o-spd">Any</b></label>
+  <input type="range" id="f-spd" min="0" max="600" step="25" value="0">
+  <label class="check"><input type="checkbox" id="f-gnd"> Hide aircraft on the ground</label>
+  <button class="reset" id="f-reset" type="button">Reset filters</button>
 </div>
 
 <div class="err-note" id="err"></div>
@@ -107,6 +165,7 @@
   <button class="close" id="close" aria-label="Close details">&times;</button>
   <h2 id="c-call">—</h2>
   <div class="sub" id="c-sub"></div>
+  <div class="route" id="c-route"><div class="codes" id="c-codes"></div><div class="names" id="c-names"></div></div>
   <dl class="grid">
     <div><dt>Altitude</dt><dd id="c-alt"></dd></div>
     <div><dt>Ground speed</dt><dd id="c-spd"></dd></div>
@@ -121,26 +180,39 @@
 <script>
 (() => {
   const REFRESH_MS = 10000;
-  const MAX_RADIUS_NM = 250;          // adsb.lol limit
+  const MAX_RADIUS_NM = 250;
   const UK_BOUNDS = [[49.8, -8.7], [60.9, 2.0]];
+  const AREAS = [
+    ['All UK', null],
+    ['Heathrow', [51.470, -0.454]],
+    ['Gatwick', [51.154, -0.182]],
+    ['Stansted', [51.886, 0.239]],
+    ['Manchester', [53.354, -2.275]],
+    ['Birmingham', [52.454, -1.748]],
+    ['Edinburgh', [55.950, -3.373]],
+    ['Glasgow', [55.872, -4.433]],
+    ['Newcastle', [55.038, -1.692]],
+    ['Bristol', [51.383, -2.719]],
+    ['Belfast', [54.658, -6.216]]
+  ];
 
   const map = L.map('map', { zoomControl: false, preferCanvas: true });
   map.fitBounds(UK_BOUNDS);
   L.control.zoom({ position: 'topright' }).addTo(map);
 
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: adsb.fi / adsb.lol',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: adsb.fi / adsb.lol, routes: adsbdb',
     maxZoom: 12
   }).addTo(map);
 
   const $ = id => document.getElementById(id);
   const planes = new Map();   // hex -> {data, marker, trail}
   let selected = null, trailLine = null, filter = '', timer = null, inflight = false;
+  const F = { minAlt: 0, minSpd: 0, hideGround: false };
 
   const altColor = ft => {
     if (ft == null) return '#7b8a91';
     const t = Math.min(Math.max(ft, 0) / 40000, 1);
-    // low = orange, mid = green, high = blue/violet
     const hue = t < 0.33 ? 28 + (t / 0.33) * 92 : t < 0.66 ? 120 + ((t - 0.33) / 0.33) * 80 : 200 + ((t - 0.66) / 0.34) * 50;
     return `hsl(${hue.toFixed(0)} ${t < 0.33 ? 85 : 65}% ${t < 0.33 ? 48 : 40}%)`;
   };
@@ -150,10 +222,9 @@
     return `<div class="plane${sel ? ' sel' : ''}" style="transform:rotate(${p.track || 0}deg)">
       <svg width="26" height="26" viewBox="0 0 24 24"><path fill="${c}" stroke="#fff" stroke-width="1" d="M12 1.5c.9 0 1.5.8 1.5 1.9v6.1l8 4.6v2.1l-8-2.3v4.3l2.2 1.7v1.6L12 20.6l-3.7 1.1v-1.6l2.2-1.7v-4.3l-8 2.3v-2.1l8-4.6V3.4c0-1.1.6-1.9 1.5-1.9z"/></svg></div>`;
   };
-
   const makeIcon = (p, sel) => L.divIcon({ className: '', html: iconHtml(p, sel), iconSize: [26, 26], iconAnchor: [13, 13] });
 
-  // ---- data sources --------------------------------------------------
+  // ---- data ----------------------------------------------------------
   const mapAc = a => ({
     id: a.hex,
     call: (a.flight || '').trim(),
@@ -168,7 +239,6 @@
     sq: a.squawk || ''
   });
 
-  // ---- relay address (set once; stored in this browser) ----
   const qs = new URLSearchParams(location.search);
   let PROXY = '';
   try {
@@ -186,6 +256,24 @@
     const j = await r.json();
     const list = j.ac || j.aircraft || [];
     return list.filter(a => a.lat != null && a.lon != null).map(mapAc);
+  }
+
+  // route lookups (origin/destination), cached per callsign
+  const routeCache = new Map();
+  const routePending = new Set();
+  async function loadRoute(call) {
+    routePending.add(call);
+    try {
+      const r = await fetch(`${PROXY}/route/${encodeURIComponent(call)}`);
+      if (!r.ok) throw new Error('route ' + r.status);
+      const j = await r.json();
+      const fr = j && j.response && j.response.flightroute;
+      routeCache.set(call, fr && fr.origin && fr.destination ? fr : null);
+    } catch (e) {
+      routeCache.set(call, null);
+    } finally { routePending.delete(call); }
+    const e = selected && planes.get(selected);
+    if (e && e.data.call === call) showCard(e);
   }
 
   function showSetup() {
@@ -240,12 +328,33 @@
     inflight = false;
   }
 
-  // ---- rendering -----------------------------------------------------
-  function matches(p) {
-    if (!filter) return true;
-    return p.call.toLowerCase().includes(filter) || p.reg.toLowerCase().includes(filter) || p.id.toLowerCase() === filter;
+  // ---- filtering -----------------------------------------------------
+  const matches = p => !filter || p.call.toLowerCase().includes(filter) || p.reg.toLowerCase().includes(filter) || p.id.toLowerCase() === filter;
+  const passes = p => {
+    if (F.hideGround && p.ground) return false;
+    const alt = p.ground ? 0 : (p.alt ?? 0);
+    if (alt < F.minAlt) return false;
+    if ((p.spd ?? 0) < F.minSpd) return false;
+    return true;
+  };
+  function restyle(e) {
+    const el = e.marker.getElement();
+    if (!el) return;
+    el.style.display = passes(e.data) ? '' : 'none';
+    if (el.firstChild) el.firstChild.classList.toggle('dim', !matches(e.data));
+  }
+  function updateCount() {
+    let n = 0;
+    for (const e of planes.values()) if (passes(e.data) && matches(e.data)) n++;
+    $('count').textContent = n.toLocaleString('en-GB');
+  }
+  function applyFilters() {
+    for (const e of planes.values()) restyle(e);
+    updateCount();
+    $('fbtn').classList.toggle('on', F.minAlt > 0 || F.minSpd > 0 || F.hideGround);
   }
 
+  // ---- rendering -----------------------------------------------------
   function apply(list) {
     const seen = new Set();
     for (const p of list) {
@@ -254,7 +363,7 @@
       const isSel = selected === p.id;
       if (!e) {
         const marker = L.marker([p.lat, p.lon], { icon: makeIcon(p, isSel), keyboard: false }).addTo(map);
-        marker.on('click', () => select(p.id));
+        marker.on('click', ev => { L.DomEvent.stopPropagation(ev); select(p.id); });
         e = { data: p, marker, trail: [] };
         planes.set(p.id, e);
       } else {
@@ -264,13 +373,12 @@
       }
       e.trail.push([p.lat, p.lon]);
       if (e.trail.length > 40) e.trail.shift();
-      const el = e.marker.getElement();
-      if (el) el.firstChild && el.firstChild.classList.toggle('dim', !matches(p));
+      restyle(e);
     }
     for (const [id, e] of planes) {
       if (!seen.has(id)) { map.removeLayer(e.marker); planes.delete(id); if (selected === id) deselect(); }
     }
-    $('count').textContent = list.filter(matches).length.toLocaleString('en-GB');
+    updateCount();
     if (selected && planes.has(selected)) showCard(planes.get(selected));
   }
 
@@ -281,11 +389,16 @@
     const e = planes.get(id);
     if (!e) return;
     e.marker.setIcon(makeIcon(e.data, true));
+    restyle(e);
     showCard(e);
   }
 
   function deselect() {
-    if (selected && planes.has(selected)) planes.get(selected).marker.setIcon(makeIcon(planes.get(selected).data, false));
+    if (selected && planes.has(selected)) {
+      const e = planes.get(selected);
+      e.marker.setIcon(makeIcon(e.data, false));
+      restyle(e);
+    }
     selected = null;
     $('card').classList.remove('open');
     if (trailLine) { map.removeLayer(trailLine); trailLine = null; }
@@ -301,27 +414,71 @@
     $('c-vs').textContent = p.vs != null ? (p.vs > 0 ? '+' : '') + p.vs.toLocaleString('en-GB') + ' ft/min' : '—';
     $('c-sq').textContent = p.sq || '—';
     $('c-reg').textContent = p.reg || '—';
+
+    // route (origin → destination)
+    const rt = $('c-route');
+    const call = p.call.toUpperCase();
+    const info = routeCache.get(call);
+    if (info) {
+      const o = info.origin, d = info.destination;
+      $('c-codes').textContent = `${o.iata_code || o.icao_code || '?'} → ${d.iata_code || d.icao_code || '?'}`;
+      const names = `${o.municipality || o.name || ''} to ${d.municipality || d.name || ''}`;
+      $('c-names').textContent = info.airline && info.airline.name ? `${names} · ${info.airline.name}` : names;
+      rt.style.display = 'block';
+    } else {
+      rt.style.display = 'none';
+      if (/^[A-Z]{3}\d/.test(call) && !routeCache.has(call) && !routePending.has(call) && PROXY) loadRoute(call);
+    }
+
     $('card').classList.add('open');
     if (trailLine) map.removeLayer(trailLine);
     if (e.trail.length > 1) trailLine = L.polyline(e.trail, { color: '#0b6e8a', weight: 2, opacity: .7, dashArray: '4 4' }).addTo(map);
   }
 
+  // ---- area chips ----------------------------------------------------
+  for (const [name, pos] of AREAS) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.textContent = name;
+    b.addEventListener('click', () => {
+      if (pos) map.flyTo(pos, 10, { duration: 1.2 }); else map.flyToBounds(UK_BOUNDS, { duration: 1.2 });
+    });
+    $('chips').appendChild(b);
+  }
+
+  // ---- filter panel --------------------------------------------------
+  const panel = $('panel'), fbtn = $('fbtn');
+  const setPanel = open => { panel.hidden = !open; fbtn.setAttribute('aria-expanded', String(open)); };
+  fbtn.addEventListener('click', () => setPanel(panel.hidden));
+  const fmtAlt = v => v === 0 ? 'Any' : v.toLocaleString('en-GB') + ' ft';
+  const fmtSpd = v => v === 0 ? 'Any' : v + ' kt';
+  $('f-alt').addEventListener('input', e => { F.minAlt = +e.target.value; $('o-alt').textContent = fmtAlt(F.minAlt); applyFilters(); });
+  $('f-spd').addEventListener('input', e => { F.minSpd = +e.target.value; $('o-spd').textContent = fmtSpd(F.minSpd); applyFilters(); });
+  $('f-gnd').addEventListener('change', e => { F.hideGround = e.target.checked; applyFilters(); });
+  $('f-reset').addEventListener('click', () => {
+    F.minAlt = 0; F.minSpd = 0; F.hideGround = false;
+    $('f-alt').value = 0; $('f-spd').value = 0; $('f-gnd').checked = false;
+    $('o-alt').textContent = 'Any'; $('o-spd').textContent = 'Any';
+    applyFilters();
+  });
+
   // ---- events --------------------------------------------------------
   $('close').addEventListener('click', deselect);
-  map.on('click', deselect);
+  map.on('click', () => { setPanel(false); deselect(); });
   map.on('moveend', () => { clearTimeout(map._mv); map._mv = setTimeout(refresh, 400); });
 
   $('q').addEventListener('input', e => {
     filter = e.target.value.trim().toLowerCase();
     let first = null;
     for (const [id, p] of planes) {
-      const m = matches(p.data);
-      const el = p.marker.getElement();
-      if (el && el.firstChild) el.firstChild.classList.toggle('dim', !m);
-      if (m && filter && !first) first = id;
+      restyle(p);
+      if (filter && !first && matches(p.data) && passes(p.data)) first = id;
     }
-    $('count').textContent = [...planes.values()].filter(p => matches(p.data)).length.toLocaleString('en-GB');
-    if (first && filter.length >= 3) { select(first); map.panTo(planes.get(first).data ? [planes.get(first).data.lat, planes.get(first).data.lon] : map.getCenter()); }
+    updateCount();
+    if (first && filter.length >= 3) {
+      select(first);
+      const d = planes.get(first).data;
+      map.panTo([d.lat, d.lon]);
+    }
   });
 
   document.addEventListener('visibilitychange', () => {
