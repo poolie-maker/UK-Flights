@@ -129,7 +129,7 @@
   L.control.zoom({ position: 'topright' }).addTo(map);
 
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: airplanes.live, adsb.lol, OpenSky',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: adsb.fi / adsb.lol',
     maxZoom: 12
   }).addTo(map);
 
@@ -168,54 +168,63 @@
     sq: a.squawk || ''
   });
 
-  const pointFetcher = (name, base) => async () => {
+  // ---- relay address (set once; stored in this browser) ----
+  const qs = new URLSearchParams(location.search);
+  let PROXY = '';
+  try {
+    if (qs.get('relay')) localStorage.setItem('relay', qs.get('relay'));
+    PROXY = localStorage.getItem('relay') || '';
+  } catch (e) { PROXY = qs.get('relay') || ''; }
+  PROXY = PROXY.trim().replace(/\/+$/, '');
+
+  async function fetchFlights() {
     const c = map.getCenter();
     const ne = map.getBounds().getNorthEast();
     const nm = Math.min(MAX_RADIUS_NM, Math.max(25, c.distanceTo(ne) / 1852));
-    const r = await fetch(`${base}/v2/point/${c.lat.toFixed(3)}/${c.lng.toFixed(3)}/${Math.round(nm)}`);
-    if (!r.ok) throw new Error(name + ' ' + r.status);
+    const r = await fetch(`${PROXY}/v2/point/${c.lat.toFixed(3)}/${c.lng.toFixed(3)}/${Math.round(nm)}`);
+    if (!r.ok) throw new Error('relay returned ' + r.status);
     const j = await r.json();
     const list = j.ac || j.aircraft || [];
     return list.filter(a => a.lat != null && a.lon != null).map(mapAc);
-  };
+  }
 
-  const fetchAirplanesLive = pointFetcher('airplanes.live', 'https://api.airplanes.live');
-  const fetchAdsbLol = pointFetcher('adsb.lol', 'https://api.adsb.lol');
-
-  async function fetchOpenSky() {
-    const b = map.getBounds();
-    const q = `lamin=${b.getSouth().toFixed(2)}&lomin=${b.getWest().toFixed(2)}&lamax=${b.getNorth().toFixed(2)}&lomax=${b.getEast().toFixed(2)}`;
-    const r = await fetch('https://opensky-network.org/api/states/all?' + q);
-    if (!r.ok) throw new Error('OpenSky ' + r.status);
-    const j = await r.json();
-    return (j.states || []).filter(s => s[5] != null && s[6] != null).map(s => ({
-      id: s[0],
-      call: (s[1] || '').trim(),
-      reg: '', type: '',
-      lat: s[6], lon: s[5],
-      ground: !!s[8],
-      alt: s[7] != null ? Math.round(s[7] * 3.28084) : null,
-      spd: s[9] != null ? Math.round(s[9] * 1.94384) : null,
-      track: s[10] ?? 0,
-      vs: s[11] != null ? Math.round(s[11] * 196.85) : null,
-      sq: s[14] || ''
-    }));
+  function showSetup() {
+    const note = $('err');
+    note.innerHTML = '';
+    note.style.display = 'block';
+    const p = document.createElement('div');
+    p.textContent = 'Live data needs your free relay. Paste its address (ends in .workers.dev):';
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:6px;margin-top:6px';
+    const inp = document.createElement('input');
+    inp.type = 'url'; inp.placeholder = 'https://uk-flights.yourname.workers.dev';
+    inp.style.cssText = 'flex:1;min-width:0;height:36px;font-size:16px;padding:0 8px;border:1px solid #e3b3a8;border-radius:6px';
+    const btn = document.createElement('button');
+    btn.textContent = 'Save';
+    btn.style.cssText = 'height:36px;padding:0 14px;border:0;border-radius:6px;background:#0b6e8a;color:#fff;font-size:15px';
+    btn.onclick = () => {
+      const v = inp.value.trim();
+      if (!/^https:\/\//.test(v)) return;
+      try { localStorage.setItem('relay', v); } catch (e) {}
+      PROXY = v.replace(/\/+$/, '');
+      note.style.display = 'none';
+      refresh();
+    };
+    row.append(inp, btn);
+    note.append(p, row);
   }
 
   async function refresh() {
     if (inflight) return;
+    if (!PROXY) { $('dot').className = 'dot err'; showSetup(); return; }
     inflight = true;
     const dot = $('dot'), note = $('err');
     dot.className = 'dot busy';
-    const errors = [];
-    let list = null;
-    for (const [name, fn] of [['airplanes.live', fetchAirplanesLive], ['adsb.lol', fetchAdsbLol], ['OpenSky', fetchOpenSky]]) {
-      try { list = await fn(); break; }
-      catch (e) { errors.push(name + ': ' + (e.message || e)); }
-    }
-    if (!list) {
+    let list;
+    try { list = await fetchFlights(); }
+    catch (e) {
       dot.className = 'dot err';
-      note.textContent = 'Could not load flights. ' + errors.join(' | ');
+      note.textContent = 'Could not load flights: ' + (e.message || e) + '. Check the relay address.';
       note.style.display = 'block';
       inflight = false;
       return;
