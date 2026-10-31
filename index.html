@@ -286,7 +286,7 @@
   L.control.zoom({ position: 'topright' }).addTo(map);
 
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: adsb.fi / adsb.one / adsb.lol, routes: adsbdb, photos: Planespotters.net',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data and paths: adsb.fi / adsb.one / adsb.lol, routes: adsbdb, photos: Planespotters.net',
     maxZoom: 12
   }).addTo(map);
 
@@ -404,6 +404,47 @@
     if (e && e.data.id === key) showCard(e);
   }
 
+  // flight path of the selected aircraft: history from the relay, else what we've seen this session
+  const traceCache = new Map();     // hex -> { pts: [[lat, lon, alt|0|null], ...] | null, at }
+  const tracePending = new Set();
+  async function loadTrace(hex) {
+    tracePending.add(hex);
+    let pts = null;
+    try {
+      const r = await fetch(`${PROXY}/trace/${encodeURIComponent(hex)}`);
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j.pts) && j.pts.length > 1) pts = j.pts;
+      }
+    } catch (e) {}
+    traceCache.set(hex, { pts, at: Date.now() });
+    tracePending.delete(hex);
+    const e = selected && planes.get(selected);
+    if (e && e.data.id === hex) drawTrail(e);
+  }
+
+  function drawTrail(e) {
+    if (trailLine) { map.removeLayer(trailLine); trailLine = null; }
+    const p = e.data, t = traceCache.get(p.id);
+    const nowAlt = p.ground ? 0 : p.alt;
+    let pts;
+    if (t && t.pts) pts = t.pts.concat([[p.lat, p.lon, nowAlt]]);
+    else pts = e.trail.map(q => [q[0], q[1], nowAlt]);
+    if (pts.length < 2) return;
+    const ll = pts.map(q => [q[0], q[1]]);
+    const g = L.layerGroup();
+    L.polyline(ll, { color: '#fff', weight: 7, opacity: .85, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(g);
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i][2];
+      L.polyline([ll[i - 1], ll[i]], {
+        color: a === 0 ? '#7b8a91' : altColor(a), weight: 4, opacity: 1,
+        interactive: false, lineCap: 'round'
+      }).addTo(g);
+    }
+    g.addTo(map);
+    trailLine = g;
+  }
+
   function showSetup() {
     const note = $('err');
     note.innerHTML = '';
@@ -508,7 +549,7 @@
         e.marker.setIcon(makeIcon(p, isSel));
       }
       e.trail.push([p.lat, p.lon]);
-      if (e.trail.length > 40) e.trail.shift();
+      if (e.trail.length > 120) e.trail.shift();
       restyle(e);
     }
     for (const [id, e] of planes) {
@@ -593,8 +634,11 @@
     }
 
     $('card').classList.add('open');
-    if (trailLine) map.removeLayer(trailLine);
-    if (e.trail.length > 1) trailLine = L.polyline(e.trail, { color: '#0b6e8a', weight: 2, opacity: .7, dashArray: '4 4' }).addTo(map);
+
+    // flight path (history is refreshed every minute while selected)
+    const tr = traceCache.get(p.id);
+    if (PROXY && !tracePending.has(p.id) && (!tr || Date.now() - tr.at > (tr.pts ? 60000 : 300000))) loadTrace(p.id);
+    drawTrail(e);
   }
 
   // ---- area chips ----------------------------------------------------
